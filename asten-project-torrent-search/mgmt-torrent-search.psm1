@@ -164,9 +164,19 @@ $hmacsha.Key = [Text.Encoding]::UTF8.GetBytes($Key)
 $hash = $hmacsha.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
 $signature = [Convert]::ToBase64String($hash)
 
-$token3 = [string]::Format([Globalization.CultureInfo]::InvariantCulture, `
+$token = [string]::Format([Globalization.CultureInfo]::InvariantCulture, `
     "SharedAccessSignature sr={0}&sig={1}&se={2}&skn={3}", `
     [Web.HttpUtility]::UrlEncode($Namespace), `
     [Web.HttpUtility]::UrlEncode($signature), `
     $tokenExpirationTime, `
     $PolicyName)
+
+$Message = @{"Body" = "My message"; "App" = "App2"}
+
+$body = $Message.Body
+$Message.psobject.properties.Remove("Body")
+$uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages"
+$headers = @{ "Authorization"="$token"; "Content-Type"="application/atom+xml;type=entry;charset=utf-8" }
+$headers.Add("BrokerProperties", $(ConvertTo-Json -InputObject $Message -Compress))
+
+Invoke-WebRequest -Uri $uri -Headers $headers -Method Post -Body $body > $null
