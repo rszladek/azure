@@ -171,7 +171,13 @@ $token = [string]::Format([Globalization.CultureInfo]::InvariantCulture, `
     $tokenExpirationTime, `
     $PolicyName)
 
-$Message = @{"Body" = "My message"; "App" = "App2"}
+
+$data = @()
+$data += @{"Name" = "Romain"; "Age" = 21; "Married" = $true}
+$data += @{"Name" = "Stephanie"; "Age" = 18; "Married" = $true}
+$data = $data | ConvertTo-Json
+
+$Message = @{"Body" = $data}
 
 $body = $Message.Body
 $Message.psobject.properties.Remove("Body")
@@ -180,3 +186,10 @@ $headers = @{ "Authorization"="$token"; "Content-Type"="application/atom+xml;typ
 $headers.Add("BrokerProperties", $(ConvertTo-Json -InputObject $Message -Compress))
 
 Invoke-WebRequest -Uri $uri -Headers $headers -Method Post -Body $body > $null
+
+
+# READ MESSAGE 
+
+$uri = $uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages/head"
+$headers = @{ "Authorization"="$token" }
+$response = Invoke-WebRequest -Uri $uri -Headers $headers -Method Delete
