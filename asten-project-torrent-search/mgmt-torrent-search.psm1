@@ -69,6 +69,13 @@ function Find-TorrentFile {
 }
 
 function Set-AzureServiceBusSASToken {
+<#
+    .synopsis
+    Generate token for Azure Service Bus
+    .description
+    Generate token for Azure Service Bus
+    .notes
+#>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
@@ -80,25 +87,26 @@ function Set-AzureServiceBusSASToken {
     )
 
     # Set Token Expiration
-    $sinceEpoch = (Get-Date).ToUniversalTime() - ([datetime]'1/1/1970')
-    $weekInSeconds = 7 * 24 * 60 * 60
-    $expiry = [System.Convert]::ToString([int]($sinceEpoch.TotalSeconds) + $weekInSeconds)
+    $endDate=[datetime]"4/11/2018 00:00"
+    $origin = [DateTime]"1/1/1970 00:00"
+    $diff = New-TimeSpan -Start $origin -End $endDate
+    $expiry = [Convert]::ToInt32($diff.TotalSeconds)
 
     # Set URI encoded
     $serviceBusResourceURIEncoded = [System.Web.HttpUtility]::UrlEncode($ServiceBusResourceURI)
 
     # Set signature encoding SHA256
-    $stringToEncode = $serviceBusResourceURIEncoded + '`n' + $expiry
+    $stringToEncode = $serviceBusResourceURIEncoded + "`n" + $expiry
     $encodeStringBytes = [System.Text.Encoding]::UTF8.GetBytes($stringToEncode)
-    $signatureString = New-Object -TypeName System.Security.Cryptography.HMACSHA256
-    $signatureString.Key = [Text.Encoding]::UTF8.GetBytes($AccessPolicyKey)
-    $signatureString = $signatureString.ComputeHash($encodeStringBytes)
+    $hash = New-Object -TypeName System.Security.Cryptography.HMACSHA256
+    $hash.Key = [Text.Encoding]::UTF8.GetBytes($AccessPolicyKey)
+    $signatureString = $hash.ComputeHash($encodeStringBytes)
     $signatureString = [System.Convert]::ToBase64String($signatureString)
+    $signatureString = [System.Web.HttpUtility]::UrlEncode($signatureString)
 
     # Return result
-    $sasToken = "SharedAccessSignature sig=$signatureString&se=$expiry&skn=$AccessPolicyKeyName&sr=$serviceBusResourceURIEncoded"
+    $sasToken = "SharedAccessSignature sr=$serviceBusResourceURIEncoded&sig=$signatureString&se=$expiry&skn=$AccessPolicyKeyName"
     return $sasToken
-
 }
 
 function Send-MessageTorrentAvailable {
@@ -112,37 +120,49 @@ function Send-MessageTorrentAvailable {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
-        [String]$Message,
+        [Object]$Message,
         [Parameter(Mandatory=$true)]
         [String]$SasToken                 
     )
 
     # Variables
-    $uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01"
-    $sasToken = "iTh19SlhDt/rYLokqSMKRMxOcMLjN/CHt14I26hfF+c="
-    $headers = @{'Authorization'=$SasToken} 
+    $uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages"
+    $headers = @{'Authorization'=$SasToken}
+    $result = @()
+    $errorStack = ""
     $brokerProperties = @{
       State='Active'
-      TimeToLive=10.0
     }
   
     # Set Header
     $brokerPropertiesJson = ConvertTo-Json $brokerProperties -Compress
     $headers.Add('BrokerProperties',$brokerPropertiesJson)
 
+    # Convert Message in JSON format
+    $data = $Message | ConvertTo-Json
+
     # Set Message format
-    $messageToPost = [System.Text.Encoding]::UTF8.GetBytes($Message)
-    $contentType = 'application/atom+xml;type=entry;charset=utf-8'
+    $contentType = "application/atom+xml;type=entry;charset=utf-8"
 
     # API call
     try {
-        Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $messageToPost -ContentType $contentType
-        Write-Host "Rest API call success for $RestApiUri" -ForegroundColor Green
+        $request = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $data -ContentType $contentType
+        $result =  @{
+            Message = $Message
+            ErrorStack = $errorStack
+            ErrorCode = 0
+        }
     }
     catch {
-        Write-Host "Failed To Send Message" -ForegroundColor Red
-        Write-Error $_.Exception.Message
+        $result = @{
+            Message = $Message
+            ErrorStack = $_.Exception.Message
+            ErrorCode = 1
+        }
     }
+
+    # Return result
+    Write-Output $result | ConvertTo-Json
 
 }
 
@@ -151,45 +171,16 @@ $Namespace = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torre
 $Key = "qjieUEtyQE6Z0XYpx+hOCJJ7B7EPMOLJy3KcIpkYjMw="
 $PolicyName = "RootManageSharedAccessKey"
 
-$endDate=[datetime]"4/1/2018 00:00"
-$origin = [DateTime]"1/1/1970 00:00"
-$diff = New-TimeSpan -Start $origin -End $endDate
-$tokenExpirationTime = [Convert]::ToInt32($diff.TotalSeconds)
-
-$stringToSign = [Web.HttpUtility]::UrlEncode($Namespace) + "`n" + $tokenExpirationTime
-
-$hmacsha = New-Object -TypeName System.Security.Cryptography.HMACSHA256 
-$hmacsha.Key = [Text.Encoding]::UTF8.GetBytes($Key)
-
-$hash = $hmacsha.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
-$signature = [Convert]::ToBase64String($hash)
-
-$token = [string]::Format([Globalization.CultureInfo]::InvariantCulture, `
-    "SharedAccessSignature sr={0}&sig={1}&se={2}&skn={3}", `
-    [Web.HttpUtility]::UrlEncode($Namespace), `
-    [Web.HttpUtility]::UrlEncode($signature), `
-    $tokenExpirationTime, `
-    $PolicyName)
-
+$token = Set-AzureServiceBusSASToken -ServiceBusResourceURI $Namespace -AccessPolicyKeyName $PolicyName -AccessPolicyKey $Key
 
 $data = @()
-$data += @{"Name" = "Romain"; "Age" = 21; "Married" = $true}
-$data += @{"Name" = "Stephanie"; "Age" = 18; "Married" = $true}
-$data = $data | ConvertTo-Json
+$data += @{"Name" = "Audi"; "Version" = "A8"; "Available" = $true}
+$data += @{"Name" = "Bmw"; "Version" = "Serie 9"; "Available" = $false}
 
-$Message = @{"Body" = $data}
-
-$body = $Message.Body
-$Message.psobject.properties.Remove("Body")
-$uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages"
-$headers = @{ "Authorization"="$token"; "Content-Type"="application/atom+xml;type=entry;charset=utf-8" }
-$headers.Add("BrokerProperties", $(ConvertTo-Json -InputObject $Message -Compress))
-
-Invoke-WebRequest -Uri $uri -Headers $headers -Method Post -Body $body > $null
-
+Send-MessageTorrentAvailable -Message $data -SasToken $token
 
 # READ MESSAGE 
 
-$uri = $uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages/head"
+$uri = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01/messages/head"
 $headers = @{ "Authorization"="$token" }
 $response = Invoke-WebRequest -Uri $uri -Headers $headers -Method Delete
