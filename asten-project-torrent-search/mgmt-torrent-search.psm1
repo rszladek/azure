@@ -167,15 +167,17 @@ function Send-MessageTorrentAvailable {
 }
 
 
+
+
 $Namespace = "https://asten-torrent-search-dev-sb01.servicebus.windows.net/torrent-search-queue01"
-$Key = "qjieUEtyQE6Z0XYpx+hOCJJ7B7EPMOLJy3KcIpkYjMw="
-$PolicyName = "RootManageSharedAccessKey"
+$Key = "iTh19SlhDt/rYLokqSMKRMxOcMLjN/CHt14I26hfF+c="
+$PolicyName = "Asten-SendMessage-Queue01"
 
 $token = Set-AzureServiceBusSASToken -ServiceBusResourceURI $Namespace -AccessPolicyKeyName $PolicyName -AccessPolicyKey $Key
 
 $data = @()
-$data += @{"Name" = "Audi"; "Version" = "A8"; "Available" = $true}
-$data += @{"Name" = "Bmw"; "Version" = "Serie 9"; "Available" = $false}
+$data += @{"Name" = "Audi"; "Version" = "A3"; "Available" = $true}
+$data += @{"Name" = "Bmw"; "Version" = "Serie 1"; "Available" = $false}
 
 Send-MessageTorrentAvailable -Message $data -SasToken $token
 
